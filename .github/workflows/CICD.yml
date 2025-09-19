@@ -1,0 +1,141 @@
+name: CI/CD
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  CI:
+    name: Continuous Integration
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Get short SHA
+        id: slug
+        run: echo "sha7=$(echo ${GITHUB_SHA} | cut -c1-7)" >> $GITHUB_OUTPUT
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup MySQL for test
+        uses: mirromutth/mysql-action@v1.1
+        with:
+          host port: 3306
+          mysql database: 'TESTDB'
+          mysql user: 'project_name'
+          mysql password: 'project_name'
+
+      - name: Setup Redis
+        uses: supercharge/redis-github-action@1.7.0
+        with:
+          redis-version: 6
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@417ae3ccd767c252f5661f1ace9f835f9654f2b5 # v3.1.0
+
+      - name: Generate application.properties
+        run: |
+          # Database
+          echo "spring.datasource.url=${{ secrets.DATABASE_URL }}" >> ./src/main/resources/application-prod.properties
+          echo "spring.datasource.username=${{ secrets.DATABASE_USERNAME }}" >> ./src/main/resources/application-prod.properties
+          echo "spring.datasource.password=${{ secrets.DATABASE_PASSWORD }}" >> ./src/main/resources/application-prod.properties
+
+          # security
+          echo "spring.security.user.name=${{ secrets.SECURITY_USERNAME }}" >> ./src/main/resources/application-prod.properties
+          echo "spring.security.user.password=${{ secrets.SECURITY_PASSWORD }}" >> ./src/main/resources/application-prod.properties
+               
+          # redis
+          echo "spring.data.redis.host=${{ secrets.REDIS_HOST }}" >> ./src/main/resources/application-prod.properties
+          echo "spring.data.redis.port=${{ secrets.REDIS_PORT }}" >> ./src/main/resources/application-prod.properties
+               
+          # etc
+          echo "api.server.url=${{ secrets.SERVER_URL }}" >> ./src/main/resources/application-prod.properties
+          echo "commit.hash=${{ steps.slug.outputs.sha7 }}" >> ./src/main/resources/application-prod.properties
+
+      - name: Build with Gradle Wrapper
+        run: ./gradlew build
+
+      - name: Upload jar files to Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jar_files
+          path: build/libs/*.jar
+
+      - name: Upload Dockerfile to Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Dockerfile
+          path: ./Dockerfile
+
+  Delivery:
+    name: Delivery
+    needs: CI
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Download jar file from Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: jar_files
+          path: build/libs
+
+      - name: Download Dockerfile file from Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Dockerfile
+          path: ./
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Get short SHA
+        id: slug
+        run: echo "sha7=$(echo ${GITHUB_SHA} | cut -c1-7)" >> $GITHUB_OUTPUT
+
+      - name: Build, tag, and push image to DockerHub
+        id: build-image
+        env:
+          USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKERHUB_REPOSITORY: ${{ secrets.DOCKERHUB_REPOSITORY }}
+          IMAGE_TAG: ${{ steps.slug.outputs.sha7 }}
+
+        run: |
+          docker build -t $USERNAME/$DOCKERHUB_REPOSITORY:$IMAGE_TAG -t $USERNAME/$DOCKERHUB_REPOSITORY:latest .
+          docker push $USERNAME/$DOCKERHUB_REPOSITORY --all-tags
+          echo "image=$USERNAME/$DOCKERHUB_REPOSITORY:$IMAGE_TAG&latest" >> $GITHUB_OUTPUT
+
+  Deploy:
+    name: Deploy
+    needs: Delivery
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Get short SHA
+        id: slug
+        run: echo "sha7=$(echo ${GITHUB_SHA} | cut -c1-7)" >> $GITHUB_OUTPUT
+
+      - name: Executing remote ssh commands
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SERVER_REMOTE_IP }}
+          username: ${{ secrets.SERVER_REMOTE_USER }}
+          key: ${{ secrets.SERVER_REMOTE_PRIVATE_KEY }} # instance pem key
+          port: ${{ secrets.SERVER_REMOTE_SSH_PORT }}
+          script: | # 실행할 스크립트
+            cd /home/ubuntu/spring-cicd-template/rolling_update
+            ./rolling-update.sh
