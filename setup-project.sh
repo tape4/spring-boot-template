@@ -96,10 +96,11 @@ print_info "원본 파일들을 백업중입니다..."
 cp src/main/resources/application.properties "$BACKUP_DIR/"
 cp src/main/resources/application-dev.properties "$BACKUP_DIR/"
 cp src/main/resources/application-test.properties "$BACKUP_DIR/"
-cp src/main/resources/logback.xml "$BACKUP_DIR/"
+cp src/main/resources/logback-spring.xml "$BACKUP_DIR/"
 cp docker-compose.yml "$BACKUP_DIR/"
 cp init.sql "$BACKUP_DIR/"
 cp grafana/dashboards/spring-boot-board.json "$BACKUP_DIR/"
+cp .github/workflows/CI.yml "$BACKUP_DIR/"
 
 # Java 소스 파일들도 백업
 cp -r src/main/java "$BACKUP_DIR/"
@@ -120,9 +121,9 @@ rm src/main/resources/application-dev.properties.bak
 sed -i.bak "s/project_name/$PROJECT_NAME/g" src/main/resources/application-test.properties
 rm src/main/resources/application-test.properties.bak
 
-# 3. logback.xml 수정
-sed -i.bak "s/project_name/$PROJECT_NAME/g" src/main/resources/logback.xml
-rm src/main/resources/logback.xml.bak
+# 3. logback-spring.xml 수정
+sed -i.bak "s/project_name/$PROJECT_NAME/g" src/main/resources/logback-spring.xml
+rm src/main/resources/logback-spring.xml.bak
 
 # 4. docker-compose.yml 수정
 sed -i.bak "s/project_name/$PROJECT_NAME/g" docker-compose.yml
@@ -136,7 +137,13 @@ rm init.sql.bak
 sed -i.bak "s/project_name/$PROJECT_NAME/g" grafana/dashboards/spring-boot-board.json
 rm grafana/dashboards/spring-boot-board.json.bak
 
-# 7. Java 패키지 구조 변경
+# 7. github action 수정
+sed -i.bak "s/project_name/$PROJECT_NAME/g" .github/workflows/CI.yml
+rm .github/workflows/CI.yml.bak
+sed -i.bak "s/project_name/$PROJECT_NAME/g" .github/workflows/CICD.yml
+rm .github/workflows/CICD.yml.bak
+
+# 8. Java 패키지 구조 변경
 print_info "Java 패키지 구조를 변경중입니다..."
 
 # 새로운 패키지 디렉토리 생성
